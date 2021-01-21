@@ -1,31 +1,25 @@
 /****************************************************************************************************************************
-  Async_AutoConnectWithFeedBackLED.ino
-  For ESP8266 / ESP32 boards
+  Based upon Async_AutoConnectWithFeedBackLED.ino For ESP8266 / ESP32 boards by Khoi Hoang (https://github.com/khoih-prog/ESP_WiFiManager)
 
-  ESPAsync_WiFiManager is a library for the ESP8266/Arduino platform, using (ESP)AsyncWebServer to enable easy
-  configuration and reconfiguration of WiFi credentials using a Captive Portal.
+  V0.0  AsyncWifi working
+  ESP32 references removed
 
-  Modified from 
-  1. Tzapu               (https://github.com/tzapu/WiFiManager)
-  2. Ken Taylor          (https://github.com/kentaylor)
-  3. Alan Steremberg     (https://github.com/alanswx/ESPAsyncWiFiManager)
-  4. Khoi Hoang          (https://github.com/khoih-prog/ESP_WiFiManager)
-
-  Built by Khoi Hoang https://github.com/khoih-prog/ESPAsync_WiFiManager
-  Licensed under MIT license
-  Version: 1.3.0
-
-  Version Modified By  Date      Comments
-  ------- -----------  ---------- -----------
-  1.0.11  K Hoang      21/08/2020 Initial coding to use (ESP)AsyncWebServer instead of (ESP8266)WebServer. Bump up to v1.0.11
-                                  to sync with ESP_WiFiManager v1.0.11
-  1.1.1   K Hoang      29/08/2020 Add MultiWiFi feature to autoconnect to best WiFi at runtime to sync with 
-                                  ESP_WiFiManager v1.1.1. Add setCORSHeader function to allow flexible CORS
-  1.1.2   K Hoang      17/09/2020 Fix bug in examples.
-  1.2.0   K Hoang      15/10/2020 Restore cpp code besides Impl.h code to use if linker error. Fix bug.
-  1.3.0   K Hoang      04/12/2020 Add LittleFS support to ESP32 using LITTLEFS Library
  *****************************************************************************************************************************/
-#if !( defined(ESP8266) ||  defined(ESP32) )
+#include <Arduino.h>
+#include "DHTesp.h"
+
+DHTesp dht;
+#define DHTPIN D3    // DHT Pin 
+int measureinterval = 2000;
+int nextmeasure = 0; 
+
+//for LED status
+#include <Ticker.h>
+Ticker ticker;
+
+
+
+#if !( defined(ESP8266)  )
   #error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
 #endif
 
@@ -229,78 +223,76 @@ IPAddress dns2IP      = IPAddress(8, 8, 8, 8);
 AsyncWebServer webServer(HTTP_PORT);
 DNSServer dnsServer;
 
-//for LED status
-#include <Ticker.h>
-Ticker ticker;
+
 
 uint8_t connectMultiWiFi()
 {
-#if ESP32
-  // For ESP32, this better be 0 to shorten the connect time
-  #define WIFI_MULTI_1ST_CONNECT_WAITING_MS       0
-#else
-  // For ESP8266, this better be 2200 to enable connect the 1st time
-  #define WIFI_MULTI_1ST_CONNECT_WAITING_MS       2200L
-#endif
-
-#define WIFI_MULTI_CONNECT_WAITING_MS           100L
-  
-  uint8_t status;
-
-  LOGERROR(F("ConnectMultiWiFi with :"));
-  
-  if ( (Router_SSID != "") && (Router_Pass != "") )
-  {
-    LOGERROR3(F("* Flash-stored Router_SSID = "), Router_SSID, F(", Router_Pass = "), Router_Pass );
-  }
-
-  for (uint8_t i = 0; i < NUM_WIFI_CREDENTIALS; i++)
-  {
-    // Don't permit NULL SSID and password len < MIN_AP_PASSWORD_SIZE (8)
-    if ( (String(WM_config.WiFi_Creds[i].wifi_ssid) != "") && (strlen(WM_config.WiFi_Creds[i].wifi_pw) >= MIN_AP_PASSWORD_SIZE) )
-    {
-      LOGERROR3(F("* Additional SSID = "), WM_config.WiFi_Creds[i].wifi_ssid, F(", PW = "), WM_config.WiFi_Creds[i].wifi_pw );
-    }
-  }
-  
-  LOGERROR(F("Connecting MultiWifi..."));
-
-  WiFi.mode(WIFI_STA);
-
-#if !USE_DHCP_IP    
-  #if USE_CONFIGURABLE_DNS  
-    // Set static IP, Gateway, Subnetmask, DNS1 and DNS2. New in v1.0.5
-    WiFi.config(stationIP, gatewayIP, netMask, dns1IP, dns2IP);  
+  #if ESP32
+    // For ESP32, this better be 0 to shorten the connect time
+    #define WIFI_MULTI_1ST_CONNECT_WAITING_MS       0
   #else
-    // Set static IP, Gateway, Subnetmask, Use auto DNS1 and DNS2.
-    WiFi.config(stationIP, gatewayIP, netMask);
-  #endif 
-#endif
+    // For ESP8266, this better be 2200 to enable connect the 1st time
+    #define WIFI_MULTI_1ST_CONNECT_WAITING_MS       2200L
+  #endif
 
-  int i = 0;
-  status = wifiMulti.run();
-  delay(WIFI_MULTI_1ST_CONNECT_WAITING_MS);
+  #define WIFI_MULTI_CONNECT_WAITING_MS           100L
+    
+    uint8_t status;
 
-  while ( ( i++ < 20 ) && ( status != WL_CONNECTED ) )
-  {
+    LOGERROR(F("ConnectMultiWiFi with :"));
+    
+    if ( (Router_SSID != "") && (Router_Pass != "") )
+    {
+      LOGERROR3(F("* Flash-stored Router_SSID = "), Router_SSID, F(", Router_Pass = "), Router_Pass );
+    }
+
+    for (uint8_t i = 0; i < NUM_WIFI_CREDENTIALS; i++)
+    {
+      // Don't permit NULL SSID and password len < MIN_AP_PASSWORD_SIZE (8)
+      if ( (String(WM_config.WiFi_Creds[i].wifi_ssid) != "") && (strlen(WM_config.WiFi_Creds[i].wifi_pw) >= MIN_AP_PASSWORD_SIZE) )
+      {
+        LOGERROR3(F("* Additional SSID = "), WM_config.WiFi_Creds[i].wifi_ssid, F(", PW = "), WM_config.WiFi_Creds[i].wifi_pw );
+      }
+    }
+    
+    LOGERROR(F("Connecting MultiWifi..."));
+
+    WiFi.mode(WIFI_STA);
+
+  #if !USE_DHCP_IP    
+    #if USE_CONFIGURABLE_DNS  
+      // Set static IP, Gateway, Subnetmask, DNS1 and DNS2. New in v1.0.5
+      WiFi.config(stationIP, gatewayIP, netMask, dns1IP, dns2IP);  
+    #else
+      // Set static IP, Gateway, Subnetmask, Use auto DNS1 and DNS2.
+      WiFi.config(stationIP, gatewayIP, netMask);
+    #endif 
+  #endif
+
+    int i = 0;
     status = wifiMulti.run();
+    delay(WIFI_MULTI_1ST_CONNECT_WAITING_MS);
+
+    while ( ( i++ < 20 ) && ( status != WL_CONNECTED ) )
+    {
+      status = wifiMulti.run();
+
+      if ( status == WL_CONNECTED )
+        break;
+      else
+        delay(WIFI_MULTI_CONNECT_WAITING_MS);
+    }
 
     if ( status == WL_CONNECTED )
-      break;
+    {
+      LOGERROR1(F("WiFi connected after time: "), i);
+      LOGERROR3(F("SSID:"), WiFi.SSID(), F(",RSSI="), WiFi.RSSI());
+      LOGERROR3(F("Channel:"), WiFi.channel(), F(",IP address:"), WiFi.localIP() );
+    }
     else
-      delay(WIFI_MULTI_CONNECT_WAITING_MS);
-  }
+      LOGERROR(F("WiFi not connected"));
 
-  if ( status == WL_CONNECTED )
-  {
-    LOGERROR1(F("WiFi connected after time: "), i);
-    LOGERROR3(F("SSID:"), WiFi.SSID(), F(",RSSI="), WiFi.RSSI());
-    LOGERROR3(F("Channel:"), WiFi.channel(), F(",IP address:"), WiFi.localIP() );
-  }
-  else
-    LOGERROR(F("WiFi not connected"));
-
-  return status;
+    return status;
 }
 
 void toggleLED()
@@ -355,9 +347,9 @@ void check_status()
 
   static ulong current_millis;
 
-#define WIFICHECK_INTERVAL    1000L
-#define LED_INTERVAL          2000L
-#define HEARTBEAT_INTERVAL    10000L
+  #define WIFICHECK_INTERVAL    1000L
+  #define LED_INTERVAL          2000L
+  #define HEARTBEAT_INTERVAL    10000L
 
   current_millis = millis();
   
@@ -365,21 +357,21 @@ void check_status()
   if ((current_millis > checkwifi_timeout) || (checkwifi_timeout == 0))
   {
     check_WiFi();
-    checkwifi_timeout = current_millis + WIFICHECK_INTERVAL;
+    checkwifi_timeout = checkwifi_timeout + WIFICHECK_INTERVAL;
   }
 
   if ((current_millis > LEDstatus_timeout) || (LEDstatus_timeout == 0))
   {
     // Toggle LED at LED_INTERVAL = 2s
     toggleLED();
-    LEDstatus_timeout = current_millis + LED_INTERVAL;
+    LEDstatus_timeout = LEDstatus_timeout + LED_INTERVAL;
   }
 
   // Print hearbeat every HEARTBEAT_INTERVAL (10) seconds.
   if ((current_millis > checkstatus_timeout) || (checkstatus_timeout == 0))
   {
     heartBeatPrint();
-    checkstatus_timeout = current_millis + HEARTBEAT_INTERVAL;
+    checkstatus_timeout = checkstatus_timeout + HEARTBEAT_INTERVAL;
   }
 }
 
@@ -425,6 +417,9 @@ void setup()
   // put your setup code here, to run once:
   Serial.begin(115200);
   while (!Serial);
+  Serial.println();
+  Serial.println();
+  Serial.println();
   
   Serial.print("\nStarting Async_AutoConnectWithFeedBackLED using " + String(FS_Name));
   Serial.println(" on " + String(ARDUINO_BOARD));
@@ -434,18 +429,18 @@ void setup()
     FileFS.format();
 
   // Format FileFS if not yet
-#ifdef ESP32
-  if (!FileFS.begin(true))
-#else
-  if (!FileFS.begin())
-#endif  
-  {
-    Serial.print(FS_Name);
-    Serial.println(F(" failed! AutoFormatting."));
-    
-#ifdef ESP8266
-    FileFS.format();
-#endif
+    #ifdef ESP32
+      if (!FileFS.begin(true))
+    #else
+      if (!FileFS.begin())
+    #endif  
+      {
+        Serial.print(FS_Name);
+        Serial.println(F(" failed! AutoFormatting."));
+        
+    #ifdef ESP8266
+        FileFS.format();
+    #endif
   }
 
   unsigned long startedAt = millis();
@@ -605,9 +600,34 @@ void setup()
   ticker.detach();
   //keep LED on
   digitalWrite(PIN_LED, LED_ON);
+
+
+  dht.setup(DHTPIN, DHTesp::DHT22); // Connect DHT sensor to DHTPIN
+  nextmeasure = millis() + measureinterval;
+
+
 }
 
 void loop()
 {
   check_status();
+  if (millis() > nextmeasure)
+  {
+    nextmeasure = nextmeasure +  measureinterval;
+    float humidity = dht.getHumidity();
+    float temperature = dht.getTemperature();
+    Serial.print(dht.getStatusString());
+    Serial.print("\t");
+    Serial.print(humidity, 1);
+    Serial.print("\t\t");
+    Serial.print(temperature, 1);
+    Serial.print("\t\t");
+    Serial.print(dht.toFahrenheit(temperature), 1);
+    Serial.print("\t\t");
+    Serial.print(dht.computeHeatIndex(temperature, humidity, false), 1);
+    Serial.print("\t\t");
+    Serial.println(dht.computeHeatIndex(dht.toFahrenheit(temperature), humidity, true), 1);
+  }
+  
+
 }
