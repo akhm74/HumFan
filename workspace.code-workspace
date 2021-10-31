@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../DHT_Test"
+		},
+		{
+			"name": "HumFanV0.0.3",
+			"path": "../../../../Dokumenter/PlatformIO/Projects/HumFanV0.0.3"
+		}
+	],
+	"settings": {}
+}
